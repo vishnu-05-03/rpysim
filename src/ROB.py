@@ -73,3 +73,36 @@ class ROB:
         Check if ROB is empty.
         """
         return self.head == self.tail and self.entries[self.head] is None
+        
+    def print_rob_table(self):
+        """
+        Print the ROB contents as a formatted table for debugging.
+        Displays index, instruction info, completion status, and value.
+        """
+        print("\n===== ROB CONTENTS =====")
+        print(f"Head: {self.head}, Tail: {self.tail}, Size: {self.size}")
+        print("-" * 80)
+        print("| {:^5} | {:^8} | {:^40} | {:^10} | {:^12} |".format(
+            "Index", "Status", "Instruction", "Completed", "Value"))
+        print("-" * 80)
+        
+        for i in range(self.size):
+            entry = self.entries[i]
+            if entry is not None:
+                instr_str = str(entry['instr']) if entry['instr'] else "None"
+                status = "HEAD" if i == self.head else "TAIL" if i == self.tail else ""
+                if i == self.head and i == self.tail:
+                    status = "H & T"
+                    
+                print("| {:^5} | {:^8} | {:<40} | {:^10} | {:^12} |".format(
+                    i, status, instr_str, 
+                    "Yes" if entry['completed'] else "No",
+                    str(entry['value']) if entry['value'] is not None else "None"))
+            else:
+                status = "HEAD" if i == self.head else "TAIL" if i == self.tail else ""
+                if i == self.head and i == self.tail:
+                    status = "H & T"
+                print("| {:^5} | {:^8} | {:<40} | {:^10} | {:^12} |".format(
+                    i, status, "Empty", "-", "-"))
+        
+        print("-" * 80)

@@ -1,11 +1,12 @@
-from Instruction import Instruction
+from .Instruction import Instruction
 
 class Decode:
-    def __init__(self, rat, rob, lsq):
+    def __init__(self, rat, rob, lsq, decode_width=2):
         self.rat = rat    # Register Alias Table for renaming
         self.rob = rob    # Reorder Buffer for in-order commit
         self.lsq = lsq    # Load/Store Queue for memory ops
         self.decoded_instr_list = []  # Holds decoded instruction for Execute
+        self.decode_width = decode_width  # Maximum instructions to decode per cycle
 
     def _decode_instr(self, instr_hex):
         """

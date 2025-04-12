@@ -20,3 +20,7 @@ class RegisterFile:
     def write(self, reg_num, value):
         if reg_num != 0:
             self.registers[reg_num] = value
+    
+    def read_all(self):
+        """Return a copy of all registers"""
+        return self.registers.copy()

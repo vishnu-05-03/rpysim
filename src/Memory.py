@@ -74,8 +74,6 @@ class Memory:
     def read_unsigned_byte(self, address):
         """Read an unsigned byte from memory at the given address"""
         return self.memory.get(address, 0) & 0xFF
-        # Mask to ensure it's unsigned
-        return byte & 0xFF
     
     def write_word(self, address, value):
         """Write a 32-bit word to memory at the given address"""

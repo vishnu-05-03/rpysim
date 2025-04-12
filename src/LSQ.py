@@ -5,6 +5,7 @@ class LSQ:
         self.entries = [None] * size  # Circular queue
         self.head = 0  # Points to next commit
         self.tail = 0  # Points to next free slot
+        self.rob = None  # Will be set by OoOProcessor
 
     def add_load(self, rob_index, rs1, imm):
         """Add a load to the LSQ."""

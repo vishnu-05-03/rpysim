@@ -34,3 +34,38 @@ class RAT:
         """
         if self.rat[reg_num] == rob_index:
             self.rat[reg_num] = None
+            
+    def print_rat_table(self):
+        """
+        Print the Register Alias Table as a formatted table for debugging.
+        Shows architectural registers and their mappings to ROB entries.
+        """
+        print("\n===== REGISTER ALIAS TABLE =====")
+        print("-" * 60)
+        print("| {:^10} | {:^15} | {:^12} | {:^12} |".format(
+            "Arch Reg", "ROB Index", "Completed", "Value"))
+        print("-" * 60)
+        
+        for i in range(32):
+            reg_name = f"x{i}"
+            if i == 0:
+                reg_name += " (zero)"
+            elif i == 1:
+                reg_name += " (ra)"
+            elif i == 2:
+                reg_name += " (sp)"
+            
+            rob_index = self.rat[i]
+            if rob_index is not None:
+                completed = "Yes" if self.rob.entries[rob_index]['completed'] else "No"
+                value = str(self.rob.entries[rob_index]['value']) if self.rob.entries[rob_index]['completed'] else "N/A"
+            else:
+                # No renaming, show actual register value
+                completed = "-"
+                value = str(self.rob.register_file.read(i))
+                rob_index = "-"
+                
+            print("| {:^10} | {:^15} | {:^12} | {:^12} |".format(
+                reg_name, str(rob_index), completed, value))
+        
+        print("-" * 60)
