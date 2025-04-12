@@ -156,16 +156,16 @@ class Decode:
         """
         if not fetch_buffer:  # No instructions to decode
             return []
-        
+
         # Check if we're still waiting for Execute to consume previous instructions
         if self.decoded_instr_list:
             return []
-            
+
         instructions_to_process = min(self.decode_width, len(fetch_buffer))
         instr_packets = []
         mappings = []
         rob_indices = []
-        
+
         # Decode instructions first to ensure we have packets
         for i in range(instructions_to_process):
             instr_hex, pc = fetch_buffer[i]
@@ -175,26 +175,26 @@ class Decode:
             except ValueError as e:
                 print(f"Error decoding instruction at PC {hex(pc)}: {e}")
                 return []  # Stop if any instruction fails
-        
+
         # Allocate ROB entries
         rob_indices = self.rob.allocate_multiple(instr_packets, instructions_to_process)
         if not rob_indices:  # ROB full
             return []
-        
+
         # Process each instruction
         for i, (instr_hex, pc) in enumerate(fetch_buffer[:instructions_to_process]):
             instr_packet = instr_packets[i]
             rob_index = rob_indices[i]
             instr_packet.rob_index = rob_index
-            
+
             # Rename source registers
             instr_packet.phys_rs1 = self.rat.rat[instr_packet.rs1] if instr_packet.rs1 is not None else None
             instr_packet.phys_rs2 = self.rat.rat[instr_packet.rs2] if instr_packet.rs2 is not None else None
-            
+
             # Collect destination register mapping
             if instr_packet.rd is not None and instr_packet.rd != 0:
                 mappings.append((instr_packet.rd, rob_index))
-                
+
             # Handle memory operations with LSQ
             if instr_packet.instr_hardware == 'LOAD':
                 lsq_index = self.lsq.add_load(rob_index, instr_packet.rs1, instr_packet.imm)
@@ -204,7 +204,7 @@ class Decode:
                         self.rob.entries[rob_indices[j]] = None
                     self.rob.tail = (self.rob.tail - i - 1) % self.rob.size
                     return []
-                    
+
             elif instr_packet.instr_hardware == 'STORE':
                 lsq_index = self.lsq.add_store(rob_index, instr_packet.rs1, instr_packet.rs2, instr_packet.imm)
                 if lsq_index is None:
@@ -212,21 +212,21 @@ class Decode:
                         self.rob.entries[rob_indices[j]] = None
                     self.rob.tail = (self.rob.tail - i - 1) % self.rob.size
                     return []
-                    
+
             # For branch instructions
             if instr_packet.instr_hardware == 'BRANCH':
                 instr_packet.address = pc
-                
+
             # Store instruction info in ROB
             instr_info = self._create_instr_info(instr_packet)
             self.rob.entries[rob_index]['instr'] = instr_info
-            
+
             # Add to decoded instructions list
             self.decoded_instr_list.append((instr_packet, rob_index))
         
         # Update RAT with all mappings
         self.rat.set_multiple_mappings(mappings)
-        
+
         # Remove processed instructions from fetch_buffer
         del fetch_buffer[:instructions_to_process]
         
