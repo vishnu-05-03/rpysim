@@ -21,7 +21,7 @@ class Decode:
             instr_packet.rd = (instr_hex >> 7) & 0x1F
             instr_packet.rs1 = (instr_hex >> 15) & 0x1F
             instr_packet.instr_format = 'I'
-            funct3 = instr_hex & 0x7000
+            funct3 = (instr_hex & 0x7000) >> 12
             if funct3 == 0x0:
                 instr_packet.instr_id = 1  # addi
                 instr_packet.imm = (instr_hex >> 20) & 0xFFF
@@ -56,12 +56,12 @@ class Decode:
             instr_packet.rd = (instr_hex >> 7) & 0x1F
             instr_packet.rs1 = (instr_hex >> 15) & 0x1F
             instr_packet.rs2 = (instr_hex >> 20) & 0x1F
-            funct3 = instr_hex & 0x7000
-            funct7 = instr_hex & 0xFE000000
+            funct3 = (instr_hex & 0x7000) >> 12
+            funct7 = (instr_hex & 0xFE000000) >> 25
             if funct3 == 0x0:
-                if funct7 == 0x00000000:
+                if funct7 == 0x00:
                     instr_packet.instr_id = 10 # add 
-                elif funct7 == 0x40000000:
+                elif funct7 == 0x20:
                     instr_packet.instr_id = 11 # sub
             elif funct3 == 0x1:
                 instr_packet.instr_id = 12 # sll
@@ -72,9 +72,9 @@ class Decode:
             elif funct3 == 0x4:
                 instr_packet.instr_id = 15 # xor
             elif funct3 == 0x5:
-                if funct7 == 0x00000000:
+                if funct7 == 0x00:
                     instr_packet.instr_id = 16 # srl
-                elif funct7 == 0x40000000:
+                elif funct7 == 0x20:
                     instr_packet.instr_id = 17 # sra
             elif funct3 == 0x6:
                 instr_packet.instr_id = 18 # or
@@ -87,7 +87,7 @@ class Decode:
             instr_packet.rd = (instr_hex >> 7) & 0x1F
             instr_packet.rs1 = (instr_hex >> 15) & 0x1F
             instr_packet.imm = (instr_hex >> 20) & 0xFFF
-            funct3 = instr_hex & 0x7000
+            funct3 = (instr_hex & 0x7000) >> 12
             if funct3 == 0x0:
                 instr_packet.instr_id = 20 # lb
             elif funct3 == 0x1:
@@ -105,7 +105,7 @@ class Decode:
             instr_packet.rs1 = (instr_hex >> 15) & 0x1F
             instr_packet.rs2 = (instr_hex >> 20) & 0x1F
             instr_packet.imm = ((instr_hex >> 7) & 0x1F) | (((instr_hex >> 25) & 0x7F) << 5)
-            funct3 = instr_hex & 0x7000
+            funct3 = (instr_hex & 0x7000) >> 12
             if funct3 == 0x0:
                 instr_packet.instr_id = 25 # sb
             elif funct3 == 0x1:
@@ -124,7 +124,7 @@ class Decode:
                 (((instr_hex >> 25) & 0x3F) << 5) |
                 (((instr_hex >> 8) & 0xF) << 1)
             )
-            funct3 = instr_hex & 0x7000
+            funct3 = (instr_hex & 0x7000) >> 12
             if funct3 == 0x0:
                 instr_packet.instr_id = 28 # beq
             elif funct3 == 0x1:
