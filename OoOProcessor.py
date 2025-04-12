@@ -9,92 +9,89 @@ from src.Decode import Decode
 from src.Execute import Execute
 
 class OoOProcessor:
-    def __init__(self, program, fetch_width=2, decode_width=2, execute_width=2, commit_width=2, rob_size=8, lsq_size=8):
-        # Initialize core components
+    def __init__(self, program):
         self.memory = Memory()
         self.register_file = RegisterFile()
-        self.rob = ROB(size=rob_size, register_file=self.register_file, commit_width=commit_width)
-        self.rat = RAT(self.rob)
-        self.lsq = LSQ(self.memory, size=lsq_size)
-        
-        # Set cross-references
-        self.lsq.rob = self.rob
-        
+        self.rob = ROB(size=8, register_file=self.register_file)
+        self.register_file.rat = RAT(self.rob, num_phys_regs=64)  # Attach RAT to register file
+        self.lsq = LSQ(self.memory, size=8)
         self.branch_predictor = BranchPredictor()
-        
-        # Initialize Fetch unit with provided dependencies
-        self.fetch = Fetch(self.memory, self.branch_predictor, self.rob)  # fetch_width=2 hardcoded in Fetch
-        self.decode = Decode(self.rat, self.rob, self.lsq, decode_width=decode_width)
-        self.execute = Execute(self.memory, self.rat, self.rob, execute_width=execute_width)
-        
-        # Load program into memory and set initial state
+        self.fetch = Fetch(self.memory, self.branch_predictor, self.rob)
+        self.decode = Decode(self.register_file.rat, self.rob, self.lsq)
+        self.execute = Execute(self.memory, self.register_file.rat, self.rob)
         self.memory.load_program(program, 0x00000000)
         self.cycle = 0
-        self.in_flight = set()  # Tracks ROB indices of dispatched instructions
+        self.in_flight = set()
 
     def tick(self):
-        """
-        Simulate one clock cycle of the out-of-order processor.
-        """
-        # # Commit stage: Retire completed instructions
-        # self.rob.commit()
+        # Commit stage
+        self.rob.commit()
 
-        # # LSQ commit: Commit stores to memory
-        # self.lsq.commit()
+        # LSQ stage (not used in this program, but keep for completeness)
+        self.lsq.tick(self.register_file.rat)
+        self.lsq.commit()
+        
+        # Execute stage
+        completed = set()
+        for rob_index in self.in_flight:
+            if self.execute.execute(rob_index):
+                completed.add(rob_index)
+        self.in_flight -= completed
 
-        # # LSQ execute: Handle load/store execution and forwarding
-        # self.lsq.tick(self.rat)
-
-        # # Execute stage: Process in-flight instructions
-        # completed = set()
-        # rob_indices_to_execute = sorted(list(self.in_flight))[:self.execute.execute_width]
-        # completed_indices = self.execute.tick(rob_indices_to_execute)
-        # completed.update(completed_indices)
-        # self.in_flight -= completed
-
-        # Decode stage: Process instructions from fetch_buffer
-        if self.fetch.fetch_buffer:  # Only proceed if fetch_buffer has instructions
+        # Decode stage
+        if self.fetch.fetch_buffer:
             rob_indices = self.decode.tick(self.fetch.fetch_buffer)
-            print(f"Decoded ROB indices: {rob_indices}")
-            self.rob.print_rob_table()  # Print ROB state after decode
-            self.rat.print_rat_table()  # Print RAT state after decode
-            if rob_indices:
-                self.in_flight.update(rob_indices)
-                self.decode.clear_buffer()  # Clear decode buffer (assumed method in Decode)
-                self.fetch.clear_buffer()  # Clear fetch buffer after decode consumes it
+            for rob_index in rob_indices:
+                self.in_flight.add(rob_index)
+            self.decode.clear_buffer()
+            self.fetch.clear_buffer()
 
-        # Fetch stage: Fetch new instructions
+        # Fetch stage
         self.fetch.tick()
 
         self.cycle += 1
+        
+        # Debugging output
+        print(f"\nCycle {self.cycle}: PC={self.fetch.pc}")
+        # self.print_rat()
+        self.print_rob()
 
-    def run(self, debug=False):
-        """
-        Run the processor until all instructions are processed.
+    def print_rat(self):
+        print("\n=== Register Alias Table (RAT) ===")
+        print("Arch Reg | Phys Reg | Previous Phys")
+        print("-----------------------------------")
+        for i in range(32):
+            reg_name = f"x{i}"
+            if i == 0:
+                reg_name = "x0 (zero)"
+            elif i == 1:
+                reg_name = "x1 (ra)"
+            elif i == 2:
+                reg_name = "x2 (sp)"
+            phys_reg = f"p{self.register_file.rat.rat[i]}" if self.register_file.rat.rat[i] is not None else "arch"
+            prev_phys = f"p{self.register_file.rat.prev_phys[i]}" if self.register_file.rat.prev_phys[i] is not None else "-"
+            print(f"{reg_name:<9} | {phys_reg:<8} | {prev_phys}")
+        print("\n=== Free Physical Registers ===")
+        print(" ".join(f"p{i}" for i in self.register_file.rat.free_list))
+        print("===================================")
 
-        Args:
-            debug (bool): If True, print cycle-by-cycle state for debugging.
-        """
-        # Run until no more work remains
-        while not self.rob.is_empty() or self.in_flight or self.fetch.fetch_buffer or self.fetch.pc < len(self.memory.memory):
+    def print_rob(self):
+        print("\n=== Reorder Buffer (ROB) ===")
+        print(f"Head: {self.rob.head}, Tail: {self.rob.tail}")
+        print("Index | Completed | Value      | Phys Reg | Instruction")
+        print("------------------------------------------------------------")
+        for i in range(self.rob.size):
+            if self.rob.entries[i] is None:
+                print(f" {i:<5} | Empty     | -          | -        | -")
+            else:
+                completed = "Yes" if self.rob.entries[i]['completed'] else "No"
+                value = f"0x{self.rob.entries[i]['value']:08x}" if self.rob.entries[i]['value'] is not None else "-"
+                phys_reg = f"p{self.rob.entries[i]['phys_rd']}" if self.rob.entries[i]['phys_rd'] is not None else "-"
+                instr = str(self.rob.entries[i]['instr'])
+                arrow = "→" if i == self.rob.head else " "
+                print(f" {i:<2} {arrow:<2} | {completed:<9} | {value:<10} | {phys_reg:<8} | {instr}")
+        print("============================================================")
+
+    def run(self):
+        while not self.rob.is_empty() or self.fetch.pc < len(self.memory.memory) * 4:
             self.tick()
-            if debug:
-                rob_state = [f"ROB[{i}]: {entry['instr'] if entry else None}" for i, entry in enumerate(self.rob.entries)]
-                print(f"Cycle {self.cycle}: PC={hex(self.fetch.pc)}, InFlight={self.in_flight}, "
-                      f"FetchBuf={len(self.fetch.fetch_buffer)}, ROB={rob_state}")
-
-    def get_state(self):
-        """
-        Return the current processor state for debugging.
-
-        Returns:
-            dict: Contains cycle count, PC, registers, memory, ROB entries, and in-flight instructions.
-        """
-        return {
-            'cycle': self.cycle,
-            'pc': self.fetch.pc,
-            'registers': self.register_file.registers.copy(),  # Assuming we need all registers
-            'memory': self.memory.dump_memory(0, len(self.memory.memory) // 4 + 1),  # Convert bytes to words
-            'rob': [(i, entry['instr']) for i, entry in enumerate(self.rob.entries) if entry],
-            'in_flight': list(self.in_flight)
-        }

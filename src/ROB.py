@@ -1,66 +1,38 @@
 class ROB:
-    def __init__(self, size, register_file, commit_width=4):
+    def __init__(self, size, register_file, commit_width=1):
         self.size = size
-        self.entries = [None] * size  # Circular buffer
-        self.head = 0                 # Points to next commit
-        self.tail = 0                 # Points to next free slot
+        self.entries = [None] * size
+        self.head = 0
+        self.tail = 0
         self.register_file = register_file
-        self.commit_width = commit_width  # Maximum commits per cycle
+        self.commit_width = commit_width
 
-    def allocate_multiple(self, instr_packets, count):
-        """
-        Allocate up to 'count' ROB entries for instructions.
-        
-        Args:
-            instr_packets: List of Instruction objects or None
-            count: Number of entries to allocate (e.g., decode_width)
-            
-        Returns:
-            List of allocated ROB indices, or empty list if insufficient space
-        """
-        # Check available space
-        available = self.size - ((self.tail - self.head) % self.size)
-        if available < count:
-            return []  # Not enough space
-        
-        rob_indices = []
-        for i in range(count):
-            rob_entry = {
-                'instr': None,  # Set later in Decode
-                'instr_packet': instr_packets[i] if i < len(instr_packets) else None,
-                'completed': False,
-                'value': None
-            }
-            self.entries[self.tail] = rob_entry
-            rob_indices.append(self.tail)
-            self.tail = (self.tail + 1) % self.size
-            
-        return rob_indices
+    def add(self, instr_info, phys_rd=None):
+        if (self.tail + 1) % self.size == self.head:
+            return None
+        rob_entry = {
+            'instr': instr_info,
+            'completed': False,
+            'value': None,
+            'phys_rd': phys_rd
+        }
+        self.entries[self.tail] = rob_entry
+        rob_index = self.tail
+        self.tail = (self.tail + 1) % self.size
+        return rob_index
 
     def commit(self):
-        """
-        Commit up to commit_width completed instructions.
-        
-        Returns:
-            True if at least one instruction was committed, False otherwise
-        """
         committed = 0
         for _ in range(self.commit_width):
             if self.entries[self.head] is None:
-                break  # Nothing more to commit
+                break
             
             entry = self.entries[self.head]
             if not entry['completed']:
-                break  # Not ready to commit
+                break
                 
-            op, *operands = entry['instr']
-            if op in ['ADD', 'ADDI', 'LW']:
-                rd = operands[0]
-                self.register_file.write(rd, entry['value'])
-                self.rat.commit(rd, self.head)  # Clear RAT mapping
-            elif op == 'SW':
-                # SW commits via LSQ, no register update needed here
-                pass
+            op, rd, _, _ = entry['instr']
+            self.register_file.rat.commit(rd, self.head)
             
             self.entries[self.head] = None
             self.head = (self.head + 1) % self.size
@@ -68,41 +40,32 @@ class ROB:
         
         return committed > 0
 
-    def is_empty(self):
-        """
-        Check if ROB is empty.
-        """
-        return self.head == self.tail and self.entries[self.head] is None
-        
-    def print_rob_table(self):
-        """
-        Print the ROB contents as a formatted table for debugging.
-        Displays index, instruction info, completion status, and value.
-        """
-        print("\n===== ROB CONTENTS =====")
-        print(f"Head: {self.head}, Tail: {self.tail}, Size: {self.size}")
-        print("-" * 80)
-        print("| {:^5} | {:^8} | {:^40} | {:^10} | {:^12} |".format(
-            "Index", "Status", "Instruction", "Completed", "Value"))
-        print("-" * 80)
+    def print_table(self):
+        """Print ROB contents as a table for debugging"""
+        print("\n=== Reorder Buffer (ROB) ===")
+        print(f"Head: {self.head}, Tail: {self.tail}")
+        print("Index | Completed | Value      | Phys Reg | Instruction")
+        print("-" * 60)
         
         for i in range(self.size):
             entry = self.entries[i]
-            if entry is not None:
-                instr_str = str(entry['instr']) if entry['instr'] else "None"
-                status = "HEAD" if i == self.head else "TAIL" if i == self.tail else ""
-                if i == self.head and i == self.tail:
-                    status = "H & T"
-                    
-                print("| {:^5} | {:^8} | {:<40} | {:^10} | {:^12} |".format(
-                    i, status, instr_str, 
-                    "Yes" if entry['completed'] else "No",
-                    str(entry['value']) if entry['value'] is not None else "None"))
+            if entry is None:
+                status = "Empty"
+                completed = "-"
+                value = "-"
+                phys_reg = "-"
+                instr = "-"
             else:
-                status = "HEAD" if i == self.head else "TAIL" if i == self.tail else ""
-                if i == self.head and i == self.tail:
-                    status = "H & T"
-                print("| {:^5} | {:^8} | {:<40} | {:^10} | {:^12} |".format(
-                    i, status, "Empty", "-", "-"))
+                status = "→" if i == self.head else " "
+                status += "←" if i == self.tail else " "
+                completed = "Yes" if entry['completed'] else "No"
+                value = f"0x{entry['value']:08x}" if entry['value'] is not None else "-"
+                phys_reg = f"p{entry['phys_rd']}" if entry['phys_rd'] is not None else "-"
+                instr = str(entry['instr']) if entry['instr'] is not None else "-"
+            
+            print(f"{i:2} {status} | {completed:9} | {value:10} | {phys_reg:8} | {instr}")
         
-        print("-" * 80)
+        print("=" * 60)
+        
+    def is_empty(self):
+        return self.head == self.tail and self.entries[self.head] is None

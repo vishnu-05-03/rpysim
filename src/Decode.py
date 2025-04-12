@@ -1,12 +1,11 @@
 from .Instruction import Instruction
 
 class Decode:
-    def __init__(self, rat, rob, lsq, decode_width=2):
-        self.rat = rat    # Register Alias Table for renaming
-        self.rob = rob    # Reorder Buffer for in-order commit
-        self.lsq = lsq    # Load/Store Queue for memory ops
-        self.decoded_instr_list = []  # Holds decoded instruction for Execute
-        self.decode_width = decode_width  # Maximum instructions to decode per cycle
+    def __init__(self, rat, rob, lsq):
+        self.rat = rat
+        self.rob = rob
+        self.lsq = lsq
+        self.decoded_instr_list = []
 
     def _decode_instr(self, instr_hex):
         """
@@ -144,119 +143,82 @@ class Decode:
         return instr_packet
 
     def tick(self, fetch_buffer):
-        """
-        Simulate one clock cycle of the decode stage.
-        Processes up to decode_width instructions from fetch_buffer.
-        
-        Args:
-            fetch_buffer: List of (instruction_hex, pc) tuples from Fetch stage
-            
-        Returns:
-            List of ROB indices for successfully decoded instructions
-        """
-        if not fetch_buffer:  # No instructions to decode
+        if not fetch_buffer:
             return []
-
-        # Check if we're still waiting for Execute to consume previous instructions
+        
         if self.decoded_instr_list:
             return []
-
-        instructions_to_process = min(self.decode_width, len(fetch_buffer))
-        instr_packets = []
-        mappings = []
+            
         rob_indices = []
-
-        # Decode instructions first to ensure we have packets
-        for i in range(instructions_to_process):
-            instr_hex, pc = fetch_buffer[i]
+        
+        for instr_hex, pc in fetch_buffer:
+            # Allocate ROB entry
+            rob_index = self.rob.add(None)
+            if rob_index is None:
+                break
+                
             try:
                 instr_packet = self._decode_instr(instr_hex)
-                instr_packets.append(instr_packet)
+                instr_packet.rob_index = rob_index
+                
+                # Allocate physical register for destination
+                phys_rd = None
+                if instr_packet.rd is not None and instr_packet.rd != 0:
+                    phys_rd = self.rat.allocate_phys_reg(rob_index)
+                    if phys_rd is None:  # No free physical registers
+                        self.rob.entries[rob_index] = None
+                        self.rob.tail = (self.rob.tail - 1) % self.rob.size
+                        break
+                    self.rat.set_mapping(instr_packet.rd, phys_rd, rob_index)
+                    
+                # Handle memory operations with LSQ
+                if instr_packet.instr_hardware == 'LOAD':
+                    lsq_index = self.lsq.add_load(rob_index, instr_packet.rs1, instr_packet.imm)
+                    if lsq_index is None:
+                        if phys_rd is not None:
+                            self.rat.free_phys_reg(phys_rd)
+                        self.rob.entries[rob_index] = None
+                        self.rob.tail = (self.rob.tail - 1) % self.rob.size
+                        break
+                        
+                elif instr_packet.instr_hardware == 'STORE':
+                    lsq_index = self.lsq.add_store(rob_index, instr_packet.rs1, instr_packet.rs2, instr_packet.imm)
+                    if lsq_index is None:
+                        if phys_rd is not None:
+                            self.rat.free_phys_reg(phys_rd)
+                        self.rob.entries[rob_index] = None
+                        self.rob.tail = (self.rob.tail - 1) % self.rob.size
+                        break
+                        
+                if instr_packet.instr_hardware == 'BRANCH':
+                    instr_packet.address = pc
+                
+                # Store instruction info in ROB
+                instr_info = self._create_instr_info(instr_packet)
+                self.rob.entries[rob_index]['instr'] = instr_info
+                self.rob.entries[rob_index]['phys_rd'] = phys_rd
+                
+                self.decoded_instr_list.append((instr_packet, rob_index))
+                rob_indices.append(rob_index)
+                
             except ValueError as e:
                 print(f"Error decoding instruction at PC {hex(pc)}: {e}")
-                return []  # Stop if any instruction fails
-
-        # Allocate ROB entries
-        rob_indices = self.rob.allocate_multiple(instr_packets, instructions_to_process)
-        if not rob_indices:  # ROB full
-            return []
-
-        # Process each instruction
-        for i, (instr_hex, pc) in enumerate(fetch_buffer[:instructions_to_process]):
-            instr_packet = instr_packets[i]
-            rob_index = rob_indices[i]
-            instr_packet.rob_index = rob_index
-
-            # Rename source registers
-            instr_packet.phys_rs1 = self.rat.rat[instr_packet.rs1] if instr_packet.rs1 is not None else None
-            instr_packet.phys_rs2 = self.rat.rat[instr_packet.rs2] if instr_packet.rs2 is not None else None
-
-            # Collect destination register mapping
-            if instr_packet.rd is not None and instr_packet.rd != 0:
-                mappings.append((instr_packet.rd, rob_index))
-
-            # Handle memory operations with LSQ
-            if instr_packet.instr_hardware == 'LOAD':
-                lsq_index = self.lsq.add_load(rob_index, instr_packet.rs1, instr_packet.imm)
-                if lsq_index is None:
-                    # Undo ROB allocations
-                    for j in range(i + 1):
-                        self.rob.entries[rob_indices[j]] = None
-                    self.rob.tail = (self.rob.tail - i - 1) % self.rob.size
-                    return []
-
-            elif instr_packet.instr_hardware == 'STORE':
-                lsq_index = self.lsq.add_store(rob_index, instr_packet.rs1, instr_packet.rs2, instr_packet.imm)
-                if lsq_index is None:
-                    for j in range(i + 1):
-                        self.rob.entries[rob_indices[j]] = None
-                    self.rob.tail = (self.rob.tail - i - 1) % self.rob.size
-                    return []
-
-            # For branch instructions
-            if instr_packet.instr_hardware == 'BRANCH':
-                instr_packet.address = pc
-
-            # Store instruction info in ROB
-            instr_info = self._create_instr_info(instr_packet)
-            self.rob.entries[rob_index]['instr'] = instr_info
-
-            # Add to decoded instructions list
-            self.decoded_instr_list.append((instr_packet, rob_index))
-        
-        # Update RAT with all mappings
-        self.rat.set_multiple_mappings(mappings)
-
-        # Remove processed instructions from fetch_buffer
-        del fetch_buffer[:instructions_to_process]
+                self.rob.entries[rob_index] = None
+                self.rob.tail = (self.rob.tail - 1) % self.rob.size
         
         return rob_indices
 
     def _create_instr_info(self, instr_packet):
-        """
-        Create instruction info tuple from Instruction object for the ROB
-        """
-        # Find instruction name from ID
         instr_name = None
         for id_val, name in Instruction.supported_instructions:
             if id_val == instr_packet.instr_id:
                 instr_name = name.upper()
                 break
         
-        if instr_packet.instr_hardware == 'ALU':
-            if instr_packet.instr_format == 'I':  # Immediate instruction
-                return (instr_name, instr_packet.rd, instr_packet.rs1, instr_packet.imm or instr_packet.shamt)
-            elif instr_packet.instr_format == 'R':  # Register-register instruction
-                return (instr_name, instr_packet.rd, instr_packet.rs1, instr_packet.rs2)
-        elif instr_packet.instr_hardware == 'LOAD':
-            return (instr_name, instr_packet.rd, instr_packet.rs1, instr_packet.imm)
-        elif instr_packet.instr_hardware == 'STORE':
-            return (instr_name, instr_packet.rs1, instr_packet.rs2, instr_packet.imm)
-        elif instr_packet.instr_hardware == 'BRANCH':
-            return (instr_name, instr_packet.rs1, instr_packet.rs2, instr_packet.imm, instr_packet.address)
+        if instr_packet.instr_hardware == 'ALU' and instr_packet.instr_format == 'R':
+            return (instr_name, instr_packet.rd, instr_packet.rs1, instr_packet.rs2)
         
         return (instr_name,)
 
     def clear_buffer(self):
-        """Clear decoded instruction buffer after Execute consumes it."""
         self.decoded_instr_list = []
