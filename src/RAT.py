@@ -50,32 +50,3 @@ class RAT:
             self.prev_phys[reg_num] = None
             self.rat[reg_num] = None
             self.phys_to_rob[phys_reg] = None
-
-    def print_table(self):
-        """Print RAT contents as a table for debugging"""
-        print("\n=== Register Alias Table (RAT) ===")
-        print("Arch Reg | Phys Reg | Previous Phys")
-        print("-" * 35)
-        
-        for i in range(32):
-            arch_name = f"x{i}"
-            if i == 0:
-                arch_name += " (zero)"
-            elif i == 1:
-                arch_name += " (ra)"
-            elif i == 2:
-                arch_name += " (sp)"
-                
-            phys_reg = self.rat[i]
-            phys_str = f"p{phys_reg}" if phys_reg is not None else "arch"
-            prev_phys = self.prev_phys[i]
-            prev_str = f"p{prev_phys}" if prev_phys is not None else "-"
-            
-            print(f"{arch_name:8} | {phys_str:8} | {prev_str}")
-        
-        print("\n=== Free Physical Registers ===")
-        chunks = [self.free_list[i:i+10] for i in range(0, len(self.free_list), 10)]
-        for chunk in chunks:
-            print(" ".join(f"p{reg}" for reg in chunk))
-        
-        print("=" * 35)

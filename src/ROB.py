@@ -5,7 +5,7 @@ class ROB:
         self.head = 0
         self.tail = 0
         self.register_file = register_file
-        self.commit_width = commit_width
+        self.commit_width = max(1, commit_width)  # Ensure at least 1
 
     def add(self, instr_info, phys_rd=None):
         if (self.tail + 1) % self.size == self.head:
@@ -25,47 +25,27 @@ class ROB:
         committed = 0
         for _ in range(self.commit_width):
             if self.entries[self.head] is None:
-                break
+                break  # No more entries
             
             entry = self.entries[self.head]
             if not entry['completed']:
-                break
+                break  # Not ready to commit
                 
-            op, rd, _, _ = entry['instr']
+            # Extract destination register
+            rd = None
+            op = entry['instr'][0]
+            if op in ['ADD', 'SUB', 'SLL', 'SLT', 'SLTU', 'XOR', 'SRL', 'SRA', 'OR', 'AND']:
+                rd = entry['instr'][1]
+            
+            # Commit to RAT (updates arch reg, frees phys reg)
             self.register_file.rat.commit(rd, self.head)
             
+            # Clear ROB entry
             self.entries[self.head] = None
             self.head = (self.head + 1) % self.size
             committed += 1
         
         return committed > 0
 
-    def print_table(self):
-        """Print ROB contents as a table for debugging"""
-        print("\n=== Reorder Buffer (ROB) ===")
-        print(f"Head: {self.head}, Tail: {self.tail}")
-        print("Index | Completed | Value      | Phys Reg | Instruction")
-        print("-" * 60)
-        
-        for i in range(self.size):
-            entry = self.entries[i]
-            if entry is None:
-                status = "Empty"
-                completed = "-"
-                value = "-"
-                phys_reg = "-"
-                instr = "-"
-            else:
-                status = "→" if i == self.head else " "
-                status += "←" if i == self.tail else " "
-                completed = "Yes" if entry['completed'] else "No"
-                value = f"0x{entry['value']:08x}" if entry['value'] is not None else "-"
-                phys_reg = f"p{entry['phys_rd']}" if entry['phys_rd'] is not None else "-"
-                instr = str(entry['instr']) if entry['instr'] is not None else "-"
-            
-            print(f"{i:2} {status} | {completed:9} | {value:10} | {phys_reg:8} | {instr}")
-        
-        print("=" * 60)
-        
     def is_empty(self):
         return self.head == self.tail and self.entries[self.head] is None

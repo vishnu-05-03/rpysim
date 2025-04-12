@@ -9,11 +9,11 @@ from src.Decode import Decode
 from src.Execute import Execute
 
 class OoOProcessor:
-    def __init__(self, program):
+    def __init__(self, program, commit_width=2):
         self.memory = Memory()
         self.register_file = RegisterFile()
-        self.rob = ROB(size=8, register_file=self.register_file)
-        self.register_file.rat = RAT(self.rob, num_phys_regs=64)  # Attach RAT to register file
+        self.rob = ROB(size=8, register_file=self.register_file, commit_width=commit_width)
+        self.register_file.rat = RAT(self.rob, num_phys_regs=64)
         self.lsq = LSQ(self.memory, size=8)
         self.branch_predictor = BranchPredictor()
         self.fetch = Fetch(self.memory, self.branch_predictor, self.rob)
@@ -22,12 +22,17 @@ class OoOProcessor:
         self.memory.load_program(program, 0x00000000)
         self.cycle = 0
         self.in_flight = set()
+        # Optional: Initialize registers for testing
+        self.register_file.write_arch(1, 10)  # x1 = 10
+        self.register_file.write_arch(2, 20)  # x2 = 20
+        self.register_file.write_arch(3, 30)  # x3 = 30
+        self.register_file.write_arch(4, 40)  # x4 = 40
 
     def tick(self):
         # Commit stage
         self.rob.commit()
 
-        # LSQ stage (not used in this program, but keep for completeness)
+        # LSQ stage (not used in this program)
         self.lsq.tick(self.register_file.rat)
         self.lsq.commit()
         
