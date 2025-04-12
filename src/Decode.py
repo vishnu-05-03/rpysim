@@ -145,7 +145,7 @@ class Decode:
     def tick(self, fetch_buffer):
         """
         Simulate one clock cycle of the decode stage.
-        Processes multiple instructions from fetch_buffer (multi-width decode).
+        Processes up to decode_width instructions from fetch_buffer.
         
         Args:
             fetch_buffer: List of (instruction_hex, pc) tuples from Fetch stage
@@ -160,57 +160,74 @@ class Decode:
         if self.decoded_instr_list:
             return []
             
+        instructions_to_process = min(self.decode_width, len(fetch_buffer))
+        instr_packets = []
+        mappings = []
         rob_indices = []
         
-        for instr_hex, pc in fetch_buffer:
-            # Allocate ROB entry
-            rob_index = self.rob.add(None)
-            if rob_index is None:  # ROB full, stop decoding more instructions
-                break
-                
-            # Decode the instruction
+        # Decode instructions first to ensure we have packets
+        for i in range(instructions_to_process):
+            instr_hex, pc = fetch_buffer[i]
             try:
                 instr_packet = self._decode_instr(instr_hex)
-                instr_packet.rob_index = rob_index  # Store ROB index in instruction packet
-                
-                # Handle register renaming with RAT
-                if instr_packet.rd is not None and instr_packet.rd != 0:  # Don't rename x0
-                    self.rat.set_mapping(instr_packet.rd, rob_index)
-                    
-                # Handle memory operations with LSQ
-                if instr_packet.instr_hardware == 'LOAD':
-                    lsq_index = self.lsq.add_load(rob_index, instr_packet.rs1, instr_packet.imm)
-                    if lsq_index is None:  # LSQ full
-                        # Undo ROB allocation and stop decoding
-                        self.rob.entries[rob_index] = None
-                        self.rob.tail = (self.rob.tail - 1) % self.rob.size
-                        break
-                        
-                elif instr_packet.instr_hardware == 'STORE':
-                    lsq_index = self.lsq.add_store(rob_index, instr_packet.rs1, instr_packet.rs2, instr_packet.imm)
-                    if lsq_index is None:  # LSQ full
-                        # Undo ROB allocation and stop decoding
-                        self.rob.entries[rob_index] = None
-                        self.rob.tail = (self.rob.tail - 1) % self.rob.size
-                        break
-                        
-                # For branch instructions, store PC and prediction info
-                if instr_packet.instr_hardware == 'BRANCH':
-                    instr_packet.address = pc  # Store PC for branch resolution
-                
-                # Store instruction info in ROB
-                instr_info = self._create_instr_info(instr_packet)
-                self.rob.entries[rob_index]['instr'] = instr_info
-                
-                # Add to decoded instructions list with ROB index
-                self.decoded_instr_list.append((instr_packet, rob_index))
-                rob_indices.append(rob_index)
-                
+                instr_packets.append(instr_packet)
             except ValueError as e:
                 print(f"Error decoding instruction at PC {hex(pc)}: {e}")
-                # Undo ROB allocation for failed instruction
-                self.rob.entries[rob_index] = None
-                self.rob.tail = (self.rob.tail - 1) % self.rob.size
+                return []  # Stop if any instruction fails
+        
+        # Allocate ROB entries
+        rob_indices = self.rob.allocate_multiple(instr_packets, instructions_to_process)
+        if not rob_indices:  # ROB full
+            return []
+        
+        # Process each instruction
+        for i, (instr_hex, pc) in enumerate(fetch_buffer[:instructions_to_process]):
+            instr_packet = instr_packets[i]
+            rob_index = rob_indices[i]
+            instr_packet.rob_index = rob_index
+            
+            # Rename source registers
+            instr_packet.phys_rs1 = self.rat.rat[instr_packet.rs1] if instr_packet.rs1 is not None else None
+            instr_packet.phys_rs2 = self.rat.rat[instr_packet.rs2] if instr_packet.rs2 is not None else None
+            
+            # Collect destination register mapping
+            if instr_packet.rd is not None and instr_packet.rd != 0:
+                mappings.append((instr_packet.rd, rob_index))
+                
+            # Handle memory operations with LSQ
+            if instr_packet.instr_hardware == 'LOAD':
+                lsq_index = self.lsq.add_load(rob_index, instr_packet.rs1, instr_packet.imm)
+                if lsq_index is None:
+                    # Undo ROB allocations
+                    for j in range(i + 1):
+                        self.rob.entries[rob_indices[j]] = None
+                    self.rob.tail = (self.rob.tail - i - 1) % self.rob.size
+                    return []
+                    
+            elif instr_packet.instr_hardware == 'STORE':
+                lsq_index = self.lsq.add_store(rob_index, instr_packet.rs1, instr_packet.rs2, instr_packet.imm)
+                if lsq_index is None:
+                    for j in range(i + 1):
+                        self.rob.entries[rob_indices[j]] = None
+                    self.rob.tail = (self.rob.tail - i - 1) % self.rob.size
+                    return []
+                    
+            # For branch instructions
+            if instr_packet.instr_hardware == 'BRANCH':
+                instr_packet.address = pc
+                
+            # Store instruction info in ROB
+            instr_info = self._create_instr_info(instr_packet)
+            self.rob.entries[rob_index]['instr'] = instr_info
+            
+            # Add to decoded instructions list
+            self.decoded_instr_list.append((instr_packet, rob_index))
+        
+        # Update RAT with all mappings
+        self.rat.set_multiple_mappings(mappings)
+        
+        # Remove processed instructions from fetch_buffer
+        del fetch_buffer[:instructions_to_process]
         
         return rob_indices
 
