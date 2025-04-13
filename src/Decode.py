@@ -1,10 +1,11 @@
 from .Instruction import Instruction
 
 class Decode:
-    def __init__(self, rat, rob, lsq):
+    def __init__(self, rat, rob, lsq, branch_predictor):  # Add branch_predictor parameter
         self.rat = rat
         self.rob = rob
         self.lsq = lsq
+        self.branch_predictor = branch_predictor  # Store reference to branch predictor
         self.decoded_instr_list = []
 
     def _decode_instr(self, instr_hex):
@@ -152,8 +153,34 @@ class Decode:
         rob_indices = []
         
         for instr_hex, pc in fetch_buffer:
-            # Allocate ROB entry
-            rob_index = self.rob.add(None)
+            # Default sequential execution - will be overridden for branches if needed
+            next_pc = pc + 4
+            
+            # Pre-check opcode to identify if this is a branch
+            opcode = instr_hex & 0x7F
+            if opcode == 0x63:  # Branch instruction
+                # Extract branch immediate
+                imm = (
+                    (((instr_hex >> 31) & 0x1) << 12) |  # imm[12]
+                    (((instr_hex >> 7) & 0x1) << 11) |   # imm[11]
+                    (((instr_hex >> 25) & 0x3F) << 5) |  # imm[10:5]
+                    (((instr_hex >> 8) & 0xF) << 1)      # imm[4:1|0]
+                )
+                # Sign extend
+                if (imm & 0x1000):
+                    imm |= 0xFFFFE000
+                
+                # Get branch prediction from branch predictor
+                predicted_taken, predicted_target = self.branch_predictor.predict(pc)
+                
+                # If branch is predicted taken, use the calculated target
+                if predicted_taken:
+                    next_pc = pc + imm
+                
+                print(f"Branch at PC={hex(pc)}: imm={hex(imm)}, target={hex(pc+imm)}, predicted_taken={predicted_taken}, next_pc={hex(next_pc)}")
+            
+            # Allocate ROB entry with PC information (including branch prediction)
+            rob_index = self.rob.add(None, curr_pc=pc, next_pc=next_pc)
             if rob_index is None:
                 break
                 
@@ -192,6 +219,14 @@ class Decode:
                         
                 if instr_packet.instr_hardware == 'BRANCH':
                     instr_packet.address = pc
+                    # For branches, store the immediate as potential branch target
+                    # This will be used in the Execute unit
+                    target_offset = instr_packet.imm if instr_packet.imm is not None else 0
+                    # Correctly calculate and store the branch target
+                    self.rob.entries[rob_index]['branch_target'] = pc + target_offset
+                    # Store branch prediction information
+                    instr_packet.predicted_taken = (next_pc != pc + 4)
+                    instr_packet.predicted_target = next_pc
                 
                 # Store instruction info in ROB
                 instr_info = self._create_instr_info(instr_packet)
@@ -217,6 +252,14 @@ class Decode:
         
         if instr_packet.instr_hardware == 'ALU' and instr_packet.instr_format == 'R':
             return (instr_name, instr_packet.rd, instr_packet.rs1, instr_packet.rs2)
+        elif instr_packet.instr_hardware == 'ALU' and instr_packet.instr_format == 'I':
+            return (instr_name, instr_packet.rd, instr_packet.rs1, instr_packet.imm)
+        elif instr_packet.instr_hardware == 'LOAD':
+            return (instr_name, instr_packet.rd, instr_packet.rs1, instr_packet.imm)
+        elif instr_packet.instr_hardware == 'STORE':
+            return (instr_name, instr_packet.rs1, instr_packet.rs2, instr_packet.imm)
+        elif instr_packet.instr_hardware == 'BRANCH':
+            return (instr_name, instr_packet.rs1, instr_packet.rs2, instr_packet.imm)
         
         return (instr_name,)
 
