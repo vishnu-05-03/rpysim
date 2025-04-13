@@ -33,7 +33,7 @@ class RAT:
         if phys_reg is None:
             return self.rob.register_file.read_arch(reg_num)
         rob_index = self.phys_to_rob[phys_reg]
-        if rob_index is not None and self.rob.entries[rob_index]['completed']:
+        if rob_index is not None and self.rob.entries[rob_index] is not None and self.rob.entries[rob_index]['completed']:
             return self.rob.register_file.read_phys(phys_reg)
         return self.rob.register_file.read_arch(reg_num)  # Fallback to arch reg
 

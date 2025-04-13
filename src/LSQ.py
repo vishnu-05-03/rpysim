@@ -1,6 +1,7 @@
 class LSQ:
-    def __init__(self, memory, size=8):
+    def __init__(self, memory, rob, size=8):
         self.memory = memory
+        self.rob = rob  # Store the ROB reference
         self.size = size
         self.entries = [None] * size
         self.head = 0

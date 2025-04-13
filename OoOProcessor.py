@@ -14,7 +14,7 @@ class OoOProcessor:
         self.register_file = RegisterFile()
         self.rob = ROB(size=8, register_file=self.register_file, commit_width=commit_width)
         self.register_file.rat = RAT(self.rob, num_phys_regs=64)
-        self.lsq = LSQ(self.memory, size=8)
+        self.lsq = LSQ(self.memory, rob=self.rob, size=8)
         
         # Create branch predictor and provide memory reference
         self.branch_predictor = BranchPredictor()
@@ -68,7 +68,10 @@ class OoOProcessor:
         
         # Debugging output
         print(f"\nCycle {self.cycle}: PC={self.fetch.pc}")
-        self.print_rob()
+        # self.print_rob()
+        print(self.rob.register_file.read_all_arch())
+        # self.print_rat()
+        print(self.memory.dump_memory(200,5))
     
     def flush_pipeline(self, next_pc):
         """Flush the pipeline due to a mispredicted branch"""
