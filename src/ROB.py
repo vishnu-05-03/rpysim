@@ -47,7 +47,7 @@ class ROB:
             # Extract destination register
             rd = None
             op = entry['instr'][0]
-            if op in ['ADD', 'SUB', 'SLL', 'SLT', 'SLTU', 'XOR', 'SRL', 'SRA', 'OR', 'AND']:
+            if op in ['ADD', 'SUB', 'SLL', 'SLT', 'SLTU', 'XOR', 'SRL', 'SRA', 'OR', 'AND', 'ADDI', 'SLTI', 'SLTIU', 'XORI', 'ORI', 'ANDI', 'SLLI', 'SRLI', 'SRAI', 'LB', 'LH', 'LW', 'LBU', 'LHU']:
                 rd = entry['instr'][1]
             
             # Commit to RAT (updates arch reg, frees phys reg)
